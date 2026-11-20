@@ -141,11 +141,13 @@ function forecast(c: Case): Array<{ id: number; q: number[] }> {
   }
 
   const t0 = Date.parse(hist[0].at);
+  const lastMs = Date.parse(hist[hist.length - 1].at);
+  const targetMs = ms(c.target, lastMs);
   const ts = hist.map((h) => Math.log1p(Math.max(0, hoursBetween(t0, Date.parse(h.at)))));
   const tLast = ts[ts.length - 1];
-  const tT = Math.log1p(Math.max(0, hoursBetween(t0, ms(c.target, Date.parse(hist[hist.length - 1].at)))));
+  const tT = Math.log1p(Math.max(0, hoursBetween(t0, targetMs)));
   const gapT = Math.max(0, tT - tLast);
-  const gapH = Math.max(0, hoursBetween(Date.parse(hist[hist.length - 1].at), ms(c.target, Date.parse(hist[hist.length - 1].at))));
+  const gapH = Math.max(0, hoursBetween(lastMs, targetMs));
 
   // The tracked population: ln(N) on t, never falling, never trusted to grow faster than e^1.5 per unit of t.
   const lnN = hist.map((h) => Math.log(Math.max(1, h.players_tracked)));
