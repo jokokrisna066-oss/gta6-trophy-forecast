@@ -7,8 +7,9 @@
 //
 //   nsl  = slope of ln(N) on t, clamped to [0, 1.5]          (N never shrinks; a refresh can triple it in one step)
 //   Np   = N_last * exp(nsl * (tT - t_last)), never below N_last
-//   sl_i = slope of ln(E_i) on t for trophy i, shrunk toward the median slope over all trophies (weight 2.0), and
-//          clamped to [-0.5, 2.5]
+//   sl_i = slope of ln(E_i) on t for trophy i, weighted toward the median slope over all trophies in proportion
+//          to its earner count (a trophy with PRIOR_EARNERS earners gets half its own fit), and clamped to
+//          [-0.6, 2.5]
 //   Ep_i = E_i,last * exp(sl_i * (tT - t_last)), never below 0.3   (a tenth of one earner at 30k players)
 //   r_i  = 100 * Ep_i / Np, clamped to [0.01, 99.99]
 //
@@ -28,8 +29,8 @@ import { join } from 'node:path';
 const LEVELS = [0.05, 0.25, 0.5, 0.75, 0.95];
 /** The standard normal's quantile at each level. */
 const Z = [-1.645, -0.674, 0, 0.674, 1.645];
-/** How much the median slope over all trophies outweighs one trophy's own fit. */
-const SHRINK_WEIGHT = 2.0;
+/** How many earners the median slope is worth when one trophy's own fit is weighed against it. */
+const PRIOR_EARNERS = 30;
 /** Spread, in logit units, per sqrt day of horizon the history does not cover. */
 const SIGMA_TIME = 0.22;
 /** Spread the tracked population's growth adds, per unit of extrapolated ln(N) and per unit of nsl. */
@@ -179,14 +180,13 @@ function forecast(c: Case): Array<{ id: number; q: number[] }> {
   const sigH = SIGMA_TIME * Math.sqrt(gapH / 24);
 
   return ids.map((id, i) => {
-    // A saturated trophy (every tracked player has it) can only move with N: its earners are the tracked players,
-    // so its slope is the population's, and the shrink toward other trophies would be plainly wrong there.
+    // A trophy's own slope is trusted in proportion to how many earners back it: a count of 3,600 is a firm
+    // signal, a count of 3 is rounding noise. The prior is the median slope over every trophy, and PRIOR_EARNERS
+    // is how many earners that prior is worth.
     const saturated = (lastRate(hist, i) ?? 0) >= SATURATED;
-    // Shrink a rare trophy's own fit toward what the trophies as a group do; the median weighs SHRINK_WEIGHT.
-    const shrunk = saturated ? nsl
-      : own[i] === null ? medianSlope
-      : (own[i]! + SHRINK_WEIGHT * medianSlope) / (1 + SHRINK_WEIGHT);
-    const sl = clamp(-0.5, 2.5, finite(shrunk));
+    const ownSlope = own[i] === null ? medianSlope : own[i]!;
+    const w = saturated ? 1 : eLast[i] / (eLast[i] + PRIOR_EARNERS);
+    const sl = clamp(-0.6, 2.5, finite(saturated ? nsl : ownSlope * w + medianSlope * (1 - w)));
 
     // Earners are never lost: a trophy already earned stays earned, so E cannot fall below its last count.
     const ePred = Math.min(nPred, Math.max(eLast[i], eLast[i] * Math.exp(sl * gapT), E_FLOOR));
