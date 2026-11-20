@@ -39,14 +39,15 @@ const SLOPE_MAX = 0.5;
 const WINDOW = 5;
 /** The spread a case's own volatility is scaled by: a little wider than a pure random walk. */
 const SIGMA_K = 1.25;
-/** The narrowest and widest spread, in logit units, any row is given. */
-const SIGMA_MIN = 0.2;
-const SIGMA_MAX = 1.6;
-/** A history with no observed movement: spread per sqrt day, and the least horizon it is widened over. */
-const FLAT_K = 0.6;
-const FLAT_DAYS = 0.25;
-/** The narrowest spread a history with no observed movement is given. */
-const FLAT_MIN = 0.3;
+/** The spread a case with no observed movement gets, per sqrt day: a history that shows nothing has no evidence
+ *  that nothing will happen -- Exophase refreshes on its own clock, and one refresh moves every rate at once. */
+const FLAT_K = 2.70;
+/** The fewest days a flat history's spread is measured over: a 90-minute practice case still needs a band wide
+ *  enough to hold a refresh it has not seen. */
+const FLAT_DAYS = 1.0;
+/** The least and most spread any row is given, in logit units. */
+const SIGMA_MIN = 0.20;
+const SIGMA_MAX = 3.20;
 /** A rate this high is every tracked player, so the trophy cannot move. */
 const SATURATED = 99.5;
 /** The spread a saturated trophy gets: it cannot move. */
@@ -225,7 +226,7 @@ function forecast(c: Case): Array<{ id: number; q: number[] }> {
   const sigma =
     vol > 0
       ? clamp(SIGMA_MIN, SIGMA_MAX, SIGMA_K * vol * Math.sqrt(daysLeft))
-      : clamp(FLAT_MIN, SIGMA_MAX, FLAT_K * Math.sqrt(Math.max(daysLeft, FLAT_DAYS)));
+      : clamp(SIGMA_MIN, SIGMA_MAX, FLAT_K * Math.sqrt(Math.max(daysLeft, FLAT_DAYS)));
 
   const xTarget = snaps.length > 0 ? Math.log1p(Math.max(0, (targetMs - t0) / HOUR_MS)) : 0;
   const debug = process.env.MAKEFUN_DEBUG === '1';
