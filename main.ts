@@ -12,8 +12,11 @@
 //    game slows after its opening burst, so a raw slope carried days forward overshoots. The median is that fit read
 //    at the target, from the last rate.
 // 3. Spread. Calibrated from the jumps the case itself shows, not from a constant: for every pair of consecutive
-//    snapshots and every trophy present in both, the logit change per sqrt day, and the median of their absolute
-//    values is the case's volatility. sigma = 1.25 * vol * sqrt(days left after the last read), so the 90% band runs
+//    snapshots and every trophy present in both, the logit change per sqrt day, and the upper quartile of their
+//    absolute values is the case's volatility. Most trophies do not move between two refreshes -- their rate is
+//    rounded to 0.01% and the population's growth does not shift it -- so the median of every jump is zero and says
+//    nothing about the trophies that do move; the jumps of exactly zero are dropped before the quantile is read.
+//    sigma = 1.25 * vol * sqrt(days left after the last read), so the 90% band runs
 //    a little wider than a pure random walk, because who plays, and how far, keeps changing. A history that shows no
 //    movement at all has no evidence of movement, so it gets a wide spread rather than a narrow one.
 // 4. Edges. A trophy at 100% is already earned by every tracked player and cannot move. A trophy below the page's
@@ -39,6 +42,10 @@ const SLOPE_MAX = 0.5;
 const WINDOW = 5;
 /** The spread a case's own volatility is scaled by: a little wider than a pure random walk. */
 const SIGMA_K = 1.25;
+/** Which quantile of the observed jumps the spread is read at: most trophies sit still between two refreshes
+ *  (their rate is rounded to 0.01%, and the population's growth does not move it), so the median of every jump is
+ *  zero and says nothing. The upper quartile is the jump a trophy that does move actually makes. */
+const VOL_QUANTILE = 0.75;
 /** The spread a case with no observed movement gets, per sqrt day: a history that shows nothing has no evidence
  *  that nothing will happen -- Exophase refreshes on its own clock, and one refresh moves every rate at once. */
 const FLAT_K = 2.70;
@@ -121,13 +128,6 @@ function slope(xs: number[], ys: number[]): number | null {
   return Number.isFinite(s) ? s : null;
 }
 
-function median(xs: number[]): number {
-  if (xs.length === 0) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 === 1 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
 /** True when two reads carry the same rates: null for null, and equal numbers for equal numbers. */
 function sameRates(a: Read['rates'], b: Read['rates']): boolean {
   if (a === b) return true;
@@ -190,7 +190,8 @@ function seriesOf(snaps: Read[], index: number, t0: number): Series {
   return { x, y, rate: last, n: x.length };
 }
 
-/** The case's volatility: the median logit jump per sqrt day between consecutive snapshots, over every trophy. */
+/** The case's volatility: the jump per sqrt day that a trophy which moves actually makes, over every jump that is not
+ *  zero. See VOL_QUANTILE for why the zero jumps are dropped and why the quantile is the upper quartile. */
 function volatility(snaps: Read[]): number {
   const vs: number[] = [];
   for (let k = 1; k < snaps.length; k++) {
@@ -205,10 +206,14 @@ function volatility(snaps: Read[]): number {
       const ra = a[i];
       const rb = b[i];
       if (!isNum(ra) || !isNum(rb)) continue;
-      vs.push(Math.abs(logit(rb) - logit(ra)) / root);
+      const v = Math.abs(logit(rb) - logit(ra)) / root;
+      // A jump of exactly zero is a trophy that did not move, not a trophy that moves slowly.
+      if (v > 1e-9) vs.push(v);
     }
   }
-  return vs.length === 0 ? 0 : median(vs);
+  if (vs.length === 0) return 0;
+  vs.sort((x, y) => x - y);
+  return vs[Math.min(vs.length - 1, Math.floor(VOL_QUANTILE * (vs.length - 1)))];
 }
 
 function forecast(c: Case): Array<{ id: number; q: number[] }> {
