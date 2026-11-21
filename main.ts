@@ -45,7 +45,11 @@ const FLAT_K = 2.70;
 /** The fewest days a flat history's spread is measured over: a 90-minute practice case still needs a band wide
  *  enough to hold a refresh it has not seen. */
 const FLAT_DAYS = 1.0;
-/** The least and most spread any row is given, in logit units. */
+/** The spread a case gets per sqrt day of horizon even when its own reads barely move: a tracked population that
+ *  doubles while the earners do not moves every rate at once, and the score punishes a band that is too narrow far
+ *  more than one that is too wide. */
+const SIGMA_FLOOR_PER_DAY = 0.45;
+/** The fewest logit units any row is given, whatever its horizon. */
 const SIGMA_MIN = 0.20;
 const SIGMA_MAX = 3.20;
 /** A rate this high is every tracked player, so the trophy cannot move. */
@@ -223,9 +227,10 @@ function forecast(c: Case): Array<{ id: number; q: number[] }> {
   // The spread this case's own history shows. A history with no jump at all is not a case with no uncertainty: it
   // is a case with no evidence, so it gets the wide fallback instead of the narrow one.
   const vol = volatility(snaps);
+  const floor = Math.max(SIGMA_MIN, SIGMA_FLOOR_PER_DAY * Math.sqrt(daysLeft));
   const sigma =
     vol > 0
-      ? clamp(SIGMA_MIN, SIGMA_MAX, SIGMA_K * vol * Math.sqrt(daysLeft))
+      ? clamp(floor, SIGMA_MAX, SIGMA_K * vol * Math.sqrt(daysLeft))
       : clamp(SIGMA_MIN, SIGMA_MAX, FLAT_K * Math.sqrt(Math.max(daysLeft, FLAT_DAYS)));
 
   const xTarget = snaps.length > 0 ? Math.log1p(Math.max(0, (targetMs - t0) / HOUR_MS)) : 0;
